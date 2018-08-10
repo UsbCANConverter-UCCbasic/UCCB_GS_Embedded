@@ -70,20 +70,20 @@ uint32_t flash_get_user_id(uint8_t channel)
 
 void flash_flush()
 {
-	FLASH_EraseInitTypeDef erase_pages;
-	erase_pages.PageAddress = (uint32_t)&flash_data_rom;
-	erase_pages.NbPages = 1;
-	erase_pages.TypeErase = FLASH_TYPEERASE_PAGES;
-
-	uint32_t error;
-
-	HAL_FLASH_Unlock();
-	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_WRPERR | FLASH_SR_PGERR);
-	HAL_FLASHEx_Erase(&erase_pages, &error);
-	if (error==0xFFFFFFFF) { // erase finished successfully
-		HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, (uint32_t)&flash_data_rom.user_id[0], flash_data_ram.user_id[0]);
-	}
-	HAL_FLASH_Lock();
+//	FLASH_EraseInitTypeDef erase_pages;
+//	erase_pages.PageAddress = (uint32_t)&flash_data_rom;
+//	erase_pages.NbPages = 1;
+//	erase_pages.TypeErase = FLASH_TYPEERASE_PAGES;
+//
+//	uint32_t error;
+//
+//	HAL_FLASH_Unlock();
+//	__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_WRPERR | FLASH_SR_PGERR);
+//	HAL_FLASHEx_Erase(&erase_pages, &error);
+//	if (error==0xFFFFFFFF) { // erase finished successfully
+//		HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, (uint32_t)&flash_data_rom.user_id[0], flash_data_ram.user_id[0]);
+//	}
+//	HAL_FLASH_Lock();
 }
 
 void flash_bootloaderSwitcher(){
@@ -109,23 +109,23 @@ void flash_bootloaderSwitcher(){
 void flash_RebootToBootloader(){
 
 
-    FLASH_OBProgramInitTypeDef OBParam;
-
-    HAL_FLASHEx_OBGetConfig(&OBParam);
-
-    OBParam.OptionType = OPTIONBYTE_USER;
-    /*Reset NBOOT0 and BOOT_SEL,  see: RM 2.5 Boot configuration*/
-    OBParam.USERConfig = 0x77; //Sorry for magic number :)
-
-    HAL_FLASH_Unlock();
-    HAL_FLASH_OB_Unlock();
-
-    HAL_FLASHEx_OBErase();
-
-    HAL_FLASHEx_OBProgram(&OBParam);
-
-    HAL_FLASH_OB_Lock();
-    HAL_FLASH_Lock();
-
-    HAL_FLASH_OB_Launch();
+//    FLASH_OBProgramInitTypeDef OBParam;
+//
+//    HAL_FLASHEx_OBGetConfig(&OBParam);
+//
+//    OBParam.OptionType = OPTIONBYTE_USER;
+//    /*Reset NBOOT0 and BOOT_SEL,  see: RM 2.5 Boot configuration*/
+//    OBParam.USERConfig = 0x77; //Sorry for magic number :)
+//
+//    HAL_FLASH_Unlock();
+//    HAL_FLASH_OB_Unlock();
+//
+//    HAL_FLASHEx_OBErase();
+//
+//    HAL_FLASHEx_OBProgram(&OBParam);
+//
+//    HAL_FLASH_OB_Lock();
+//    HAL_FLASH_Lock();
+//
+//    HAL_FLASH_OB_Launch();
 }

@@ -40,7 +40,7 @@ static uint32_t dfu_reset_to_bootloader_magic;
 
 void dfu_run_bootloader()
 {
-	flash_RebootToBootloader();
+//	flash_RebootToBootloader();
 	dfu_reset_to_bootloader_magic = RESET_TO_BOOTLOADER_MAGIC_CODE;
 	NVIC_SystemReset();
 }
