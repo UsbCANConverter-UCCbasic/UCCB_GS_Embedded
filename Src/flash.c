@@ -107,25 +107,23 @@ void flash_bootloaderSwitcher(){
 }
 
 void flash_RebootToBootloader(){
+    FLASH_OBProgramInitTypeDef OBParam;
 
+    HAL_FLASHEx_OBGetConfig(&OBParam);
 
-//    FLASH_OBProgramInitTypeDef OBParam;
-//
-//    HAL_FLASHEx_OBGetConfig(&OBParam);
-//
-//    OBParam.OptionType = OPTIONBYTE_USER;
-//    /*Reset NBOOT0 and BOOT_SEL,  see: RM 2.5 Boot configuration*/
-//    OBParam.USERConfig = 0x77; //Sorry for magic number :)
-//
-//    HAL_FLASH_Unlock();
-//    HAL_FLASH_OB_Unlock();
-//
-//    HAL_FLASHEx_OBErase();
-//
-//    HAL_FLASHEx_OBProgram(&OBParam);
-//
-//    HAL_FLASH_OB_Lock();
-//    HAL_FLASH_Lock();
-//
-//    HAL_FLASH_OB_Launch();
+    OBParam.OptionType = OPTIONBYTE_USER;
+    /*Reset NBOOT0 and BOOT_SEL,  see: RM 2.5 Boot configuration*/
+    OBParam.USERConfig = 0x77; //Sorry for magic number :)
+
+    HAL_FLASH_Unlock();
+    HAL_FLASH_OB_Unlock();
+
+    HAL_FLASHEx_OBErase();
+
+    HAL_FLASHEx_OBProgram(&OBParam);
+
+    HAL_FLASH_OB_Lock();
+    HAL_FLASH_Lock();
+
+    HAL_FLASH_OB_Launch();
 }
