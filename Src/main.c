@@ -122,7 +122,9 @@ int main(void)
 
 		if (can_is_rx_pending(&hCAN)) {
 			struct gs_host_frame *frame = queue_pop_front(q_frame_pool);
-			if ((frame != 0) && can_receive(&hCAN, frame)) {
+			if (frame != 0)
+			{
+				if (can_receive(&hCAN, frame)) {
              			received_count++;
 
 				frame->timestamp_us = timer_get();
@@ -133,12 +135,13 @@ int main(void)
 
 				send_to_host_or_enqueue(frame);
 
-//				led_indicate_trx(&hLED, led_1);
-
-			} else {
-				queue_push_back(q_frame_pool, frame);
+//					led_indicate_trx(&hLED, led_1);
+				}
+				else
+				{
+					queue_push_back(q_frame_pool, frame);
+				}
 			}
-
 		}
 
 		uint32_t can_err = can_get_error_status(&hCAN);
