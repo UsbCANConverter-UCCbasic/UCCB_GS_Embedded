@@ -27,7 +27,7 @@ THE SOFTWARE.
 
 #include "flash.h"
 #include <string.h>
-#include "stm32f0xx_hal.h"
+#include "stm32f0xx_hal_flash.h"
 
 #define NUM_CHANNEL 1
 
@@ -47,7 +47,6 @@ void flash_load()
 bool flash_set_user_id(uint8_t channel, uint32_t user_id)
 {
 	if (channel<NUM_CHANNEL) {
-
 		if (flash_data_ram.user_id[channel] != user_id) {
 			flash_data_ram.user_id[channel] = user_id;
 			flash_flush();
@@ -97,15 +96,15 @@ void flash_bootloaderSwitcher(){
         OBParam.OptionType = OPTIONBYTE_USER;
         OBParam.USERConfig = 0x7F;
 
-        HAL_FLASH_Unlock();
+	HAL_FLASH_Unlock();
         HAL_FLASH_OB_Unlock();
         HAL_FLASHEx_OBErase();
         HAL_FLASHEx_OBProgram(&OBParam);
         HAL_FLASH_OB_Lock();
         HAL_FLASH_OB_Launch();
     }
-}
-
+	}
+	
 void flash_RebootToBootloader(){
     FLASH_OBProgramInitTypeDef OBParam;
 
@@ -123,7 +122,7 @@ void flash_RebootToBootloader(){
     HAL_FLASHEx_OBProgram(&OBParam);
 
     HAL_FLASH_OB_Lock();
-    HAL_FLASH_Lock();
+	HAL_FLASH_Lock();
 
     HAL_FLASH_OB_Launch();
 }

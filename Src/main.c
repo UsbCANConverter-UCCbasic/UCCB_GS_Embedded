@@ -41,6 +41,7 @@ THE SOFTWARE.
 #include "dfu.h"
 #include "timer.h"
 #include "flash.h"
+#include "util.h"
 
 void HAL_MspInit(void);
 void SystemClock_Config(void);
@@ -68,15 +69,20 @@ int main(void)
 	SystemClock_Config();
 
 	flash_load();
-//
+
 	gpio_init();
-//
-//#if BOARD == BOARD_canable
-//	led_init(&hLED, LED1_GPIO_Port, LED1_Pin, true, LED2_GPIO_Port, LED2_Pin, true);
-//#else
-//	led_init(&hLED, LED1_GPIO_Port, LED1_Pin, false, LED2_GPIO_Port, LED2_Pin, false);
-//#endif
-//	led_set_mode(&hLED, led_mode_off);
+
+	//led_init(&hLED, LED1_GPIO_Port, LED1_Pin, LED1_Active_High, LED2_GPIO_Port, LED2_Pin, LED2_Active_High);
+
+	/* nice wake-up pattern */
+    for(uint8_t i=0; i<10; i++)
+    {
+       // HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+       // HAL_Delay(50);
+       // HAL_GPIO_TogglePin(LED2_GPIO_Port, LED2_Pin);
+    }
+
+	//led_set_mode(&hLED, led_mode_off);
 	timer_init();
 
 	can_init(&hCAN, CAN);
@@ -86,13 +92,16 @@ int main(void)
 	q_frame_pool = queue_create(CAN_QUEUE_SIZE);
 	q_from_host  = queue_create(CAN_QUEUE_SIZE);
 	q_to_host    = queue_create(CAN_QUEUE_SIZE);
+	assert_basic(q_frame_pool && q_from_host && q_to_host);
 
 	struct gs_host_frame *msgbuf = calloc(CAN_QUEUE_SIZE, sizeof(struct gs_host_frame));
+	assert_basic(msgbuf);
+
 	for (unsigned i=0; i<CAN_QUEUE_SIZE; i++) {
 		queue_push_back(q_frame_pool, &msgbuf[i]);
 	}
 
-	USBD_Init(&hUSB, &FS_Desc, DEVICE_FS);
+	USBD_Init(&hUSB, (USBD_DescriptorsTypeDef*)&FS_Desc, DEVICE_FS);
 	USBD_RegisterClass(&hUSB, &USBD_GS_CAN);
 	USBD_GS_CAN_Init(&hUSB, q_frame_pool, q_from_host, &hLED);
 	USBD_GS_CAN_SetChannel(&hUSB, 0, &hCAN);
@@ -106,11 +115,11 @@ int main(void)
 		struct gs_host_frame *frame = queue_pop_front(q_from_host);
 		if (frame != 0) { // send can message from host
 			if (can_send(&hCAN, frame)) {
-			        // Echo sent frame back to host
-			        frame->timestamp_us = timer_get();
+				// Echo sent frame back to host
+				frame->timestamp_us = timer_get();
 				send_to_host_or_enqueue(frame);
 
-//				led_indicate_trx(&hLED, led_2);
+			//	led_indicate_trx(&hLED, led_2);
 			} else {
 				queue_push_front(q_from_host, frame); // retry later
 			}
@@ -125,41 +134,42 @@ int main(void)
 			if (frame != 0)
 			{
 				if (can_receive(&hCAN, frame)) {
-             			received_count++;
+					received_count++;
 
-				frame->timestamp_us = timer_get();
-				frame->echo_id = 0xFFFFFFFF; // not a echo frame
-				frame->channel = 0;
-				frame->flags = 0;
-				frame->reserved = 0;
+					frame->timestamp_us = timer_get();
+					frame->echo_id = 0xFFFFFFFF; // not a echo frame
+					frame->channel = 0;
+					frame->flags = 0;
+					frame->reserved = 0;
 
-				send_to_host_or_enqueue(frame);
+					send_to_host_or_enqueue(frame);
 
-//					led_indicate_trx(&hLED, led_1);
+			//		led_indicate_trx(&hLED, led_1);
 				}
 				else
 				{
 					queue_push_back(q_frame_pool, frame);
 				}
 			}
-		}
-
-		uint32_t can_err = can_get_error_status(&hCAN);
-		if (can_err != last_can_error_status) {
+			// If there are frames to receive, don't report any error frames. The
+			// best we can localize the errors to is "after the last successfully
+			// received frame", so wait until we get there. LEC will hold some error
+			// to report even if multiple pass by.
+		} else {
+			uint32_t can_err = can_get_error_status(&hCAN);
 			struct gs_host_frame *frame = queue_pop_front(q_frame_pool);
 			if (frame != 0) {
 				frame->timestamp_us = timer_get();
-				if (can_parse_error_status(can_err, frame)) {
+				if (can_parse_error_status(can_err, last_can_error_status, &hCAN, frame)) {
 					send_to_host_or_enqueue(frame);
 					last_can_error_status = can_err;
 				} else {
 					queue_push_back(q_frame_pool, frame);
 				}
-
 			}
 		}
 
-//		led_update(&hLED);
+		//led_update(&hLED);
 
 		if (USBD_GS_CAN_DfuDetachRequested(&hUSB)) {
 			dfu_run_bootloader();
@@ -217,33 +227,21 @@ void SystemClock_Config(void)
 
 bool send_to_host_or_enqueue(struct gs_host_frame *frame)
 {
-	if (USBD_GS_CAN_GetProtocolVersion(&hUSB) == 2) {
-		queue_push_back(q_to_host, frame);
-		return true;
-
-	} else {
-		bool retval = false;
-		if ( USBD_GS_CAN_SendFrame(&hUSB, frame) == USBD_OK ) {
-			queue_push_back(q_frame_pool, frame);
-			retval = true;
-		} else {
-			queue_push_back(q_to_host, frame);
-		}
-		return retval;
-	}
+	queue_push_back(q_to_host, frame);
+	return true;
 }
 
 void send_to_host()
 {
-        struct gs_host_frame *frame = queue_pop_front(q_to_host);
+	struct gs_host_frame *frame = queue_pop_front(q_to_host);
 
 	if(!frame)
 	  return;
 
 	if (USBD_GS_CAN_SendFrame(&hUSB, frame) == USBD_OK) {
-	        queue_push_back(q_frame_pool, frame);
+		queue_push_back(q_frame_pool, frame);
 	} else {
-	        queue_push_front(q_to_host, frame);
+		queue_push_front(q_to_host, frame);
 	}
 }
 

@@ -31,8 +31,8 @@ THE SOFTWARE.
 
 void led_init(
 	led_data_t *leds,
-	void* led1_port, uint8_t led1_pin, bool led1_active_high,
-	void* led2_port, uint8_t led2_pin, bool led2_active_high
+	void* led1_port, uint16_t led1_pin, bool led1_active_high,
+	void* led2_port, uint16_t led2_pin, bool led2_active_high
 ) {
 	memset(leds, 0, sizeof(led_data_t));
 	leds->led_state[0].port = led1_port;
@@ -99,7 +99,6 @@ static void led_update_normal_mode(led_state_t *led)
 
 static void led_update_sequence(led_data_t *leds)
 {
-
 	if (leds->sequence == NULL) {
 		return;
 	}
@@ -126,10 +125,8 @@ static void led_update_sequence(led_data_t *leds)
 			} else {
 				leds->sequence = NULL;
 			}
-
 		}
 	}
-
 }
 
 void led_update(led_data_t *leds)
@@ -154,6 +151,4 @@ void led_update(led_data_t *leds)
 			led_set(&leds->led_state[0], false);
 			led_set(&leds->led_state[1], true);
 	}
-
 }
-

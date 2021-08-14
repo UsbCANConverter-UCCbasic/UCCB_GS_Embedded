@@ -25,6 +25,7 @@ THE SOFTWARE.
 */
 
 #include "can.h"
+#include "config.h"
 
 void can_init(can_data_t *hcan, CAN_TypeDef *instance)
 {
@@ -68,13 +69,13 @@ void can_enable(can_data_t *hcan, bool loop_back, bool listen_only, bool one_sho
 
 	uint32_t mcr = CAN_MCR_INRQ
 				 | CAN_MCR_ABOM
-			     | CAN_MCR_TXFP
+				 | CAN_MCR_TXFP
 				 | (one_shot ? CAN_MCR_NART : 0);
 
 	uint32_t btr = ((uint32_t)(hcan->sjw-1)) << 24
-  			     | ((uint32_t)(hcan->phase_seg1-1)) << 16
-			     | ((uint32_t)(hcan->phase_seg2-1)) << 20
-			     | (hcan->brp - 1)
+				 | ((uint32_t)(hcan->phase_seg1-1)) << 16
+				 | ((uint32_t)(hcan->phase_seg2-1)) << 20
+				 | (hcan->brp - 1)
 				 | (loop_back ? CAN_MODE_LOOPBACK : 0)
 				 | (listen_only ? CAN_MODE_SILENT : 0);
 
@@ -105,11 +106,17 @@ void can_enable(can_data_t *hcan, bool loop_back, bool listen_only, bool one_sho
 	can->FA1R |= filter_bit;         // enable filter
 	can->FMR &= ~CAN_FMR_FINIT;
 
+#ifdef nCANSTBY_Pin
+	HAL_GPIO_WritePin(nCANSTBY_Port, nCANSTBY_Pin, GPIO_PIN_SET);
+#endif
 }
 
 void can_disable(can_data_t *hcan)
 {
 	CAN_TypeDef *can = hcan->instance;
+#ifdef nCANSTBY_Pin
+	HAL_GPIO_WritePin(nCANSTBY_Port, nCANSTBY_Pin, GPIO_PIN_RESET);
+#endif
 	can->MCR |= CAN_MCR_INRQ ; // send can controller into initialization mode
 }
 
@@ -133,7 +140,7 @@ bool can_receive(can_data_t *hcan, struct gs_host_frame *rx_frame)
 		CAN_FIFOMailBox_TypeDef *fifo = &can->sFIFOMailBox[0];
 
 		if (fifo->RIR &  CAN_RI0R_IDE) {
-			rx_frame->can_id =  CAN_EFF_FLAG | ((fifo->RIR >> 3) & 0x1FFFFFFF);
+			rx_frame->can_id = CAN_EFF_FLAG | ((fifo->RIR >> 3) & 0x1FFFFFFF);
 		} else {
 			rx_frame->can_id = (fifo->RIR >> 21) & 0x7FF;
 		}
@@ -155,12 +162,9 @@ bool can_receive(can_data_t *hcan, struct gs_host_frame *rx_frame)
 
 		can->RF0R |= CAN_RF0R_RFOM0; // release FIFO
 
-	    return true;
-
+		return true;
 	} else {
-
 		return false;
-
 	}
 }
 
@@ -228,8 +232,18 @@ uint32_t can_get_error_status(can_data_t *hcan)
 	return can->ESR;
 }
 
-bool can_parse_error_status(uint32_t err, struct gs_host_frame *frame)
+static bool status_is_active(uint32_t err)
 {
+	return !(err & (CAN_ESR_BOFF | CAN_ESR_EPVF));
+}
+
+bool can_parse_error_status(uint32_t err, uint32_t last_err, can_data_t *hcan, struct gs_host_frame *frame)
+{
+	/* We build up the detailed error information at the same time as we decide
+	 * whether there's anything worth sending. This variable tracks that final
+	 * result. */
+	bool should_send = false;
+
 	frame->echo_id = 0xFFFFFFFF;
 	frame->can_id  = CAN_ERR_FLAG | CAN_ERR_CRTL;
 	frame->can_dlc = CAN_ERR_DLC;
@@ -242,51 +256,99 @@ bool can_parse_error_status(uint32_t err, struct gs_host_frame *frame)
 	frame->data[6] = 0;
 	frame->data[7] = 0;
 
-	if ((err & CAN_ESR_BOFF) != 0) {
+	if (err & CAN_ESR_BOFF) {
 		frame->can_id |= CAN_ERR_BUSOFF;
+		if (!(last_err & CAN_ESR_BOFF)) {
+			/* We transitioned to bus-off. */
+			should_send = true;
+		}
+	} else if (last_err & CAN_ESR_BOFF) {
+		/* We transitioned out of bus-off. */
+		should_send = true;
 	}
 
-	/*
+	/* We transitioned from passive/bus-off to active, so report the edge. */
+	if (!status_is_active(last_err) && status_is_active(err)) {
+		frame->data[1] |= CAN_ERR_CRTL_ACTIVE;
+		should_send = true;
+	}
+
 	uint8_t tx_error_cnt = (err>>16) & 0xFF;
 	uint8_t rx_error_cnt = (err>>24) & 0xFF;
-	*/
+	/* The Linux sja1000 driver puts these counters here. Seems like as good a
+	 * place as any. */
+	frame->data[6] = tx_error_cnt;
+	frame->data[7] = rx_error_cnt;
+
+	uint8_t last_tx_error_cnt = (last_err>>16) & 0xFF;
+	uint8_t last_rx_error_cnt = (last_err>>24) & 0xFF;
+	/* If either error counter transitioned to/from 0. */
+	if ((tx_error_cnt == 0) != (last_tx_error_cnt == 0)) {
+		should_send = true;
+	}
+	if ((rx_error_cnt == 0) != (last_rx_error_cnt == 0)) {
+		should_send = true;
+	}
+	/* If either error counter increased by 15. */
+	if (((int)last_tx_error_cnt + CAN_ERRCOUNT_THRESHOLD) < tx_error_cnt) {
+		should_send = true;
+	}
+	if (((int)last_rx_error_cnt + CAN_ERRCOUNT_THRESHOLD) < rx_error_cnt) {
+		should_send = true;
+	}
 
 	if (err & CAN_ESR_EPVF) {
 		frame->data[1] |= CAN_ERR_CRTL_RX_PASSIVE | CAN_ERR_CRTL_TX_PASSIVE;
+		if (!(last_err & CAN_ESR_EPVF)) {
+			should_send = true;
+		}
 	} else if (err & CAN_ESR_EWGF) {
 		frame->data[1] |= CAN_ERR_CRTL_RX_WARNING | CAN_ERR_CRTL_TX_WARNING;
+		if (!(last_err & CAN_ESR_EWGF)) {
+			should_send = true;
+		}
+	} else if (last_err & (CAN_ESR_EPVF | CAN_ESR_EWGF)) {
+		should_send = true;
 	}
 
 	uint8_t lec = (err>>4) & 0x07;
-	if (lec!=0) { /* protocol error */
-		switch (lec) {
-			case 0x01: /* stuff error */
-				frame->can_id |= CAN_ERR_PROT;
-				frame->data[2] |= CAN_ERR_PROT_STUFF;
-				break;
-			case 0x02: /* form error */
-				frame->can_id |= CAN_ERR_PROT;
-				frame->data[2] |= CAN_ERR_PROT_FORM;
-				break;
-			case 0x03: /* ack error */
-				frame->can_id |= CAN_ERR_ACK;
-				break;
-			case 0x04: /* bit recessive error */
-				frame->can_id |= CAN_ERR_PROT;
-				frame->data[2] |= CAN_ERR_PROT_BIT1;
-				break;
-			case 0x05: /* bit dominant error */
-				frame->can_id |= CAN_ERR_PROT;
-				frame->data[2] |= CAN_ERR_PROT_BIT0;
-				break;
-			case 0x06: /* CRC error */
-				frame->can_id |= CAN_ERR_PROT;
-				frame->data[3] |= CAN_ERR_PROT_LOC_CRC_SEQ;
-				break;
-			default:
-				break;
-		}
+	switch (lec) {
+		case 0x01: /* stuff error */
+			frame->can_id |= CAN_ERR_PROT;
+			frame->data[2] |= CAN_ERR_PROT_STUFF;
+			should_send = true;
+			break;
+		case 0x02: /* form error */
+			frame->can_id |= CAN_ERR_PROT;
+			frame->data[2] |= CAN_ERR_PROT_FORM;
+			should_send = true;
+			break;
+		case 0x03: /* ack error */
+			frame->can_id |= CAN_ERR_ACK;
+			should_send = true;
+			break;
+		case 0x04: /* bit recessive error */
+			frame->can_id |= CAN_ERR_PROT;
+			frame->data[2] |= CAN_ERR_PROT_BIT1;
+			should_send = true;
+			break;
+		case 0x05: /* bit dominant error */
+			frame->can_id |= CAN_ERR_PROT;
+			frame->data[2] |= CAN_ERR_PROT_BIT0;
+			should_send = true;
+			break;
+		case 0x06: /* CRC error */
+			frame->can_id |= CAN_ERR_PROT;
+			frame->data[3] |= CAN_ERR_PROT_LOC_CRC_SEQ;
+			should_send = true;
+			break;
+		default: /* 0=no error, 7=no change */
+			break;
 	}
 
-	return true;
+	CAN_TypeDef *can = hcan->instance;
+	/* Write 7 to LEC so we know if it gets set to the same thing again */
+	can->ESR = 7<<4;
+
+	return should_send;
 }

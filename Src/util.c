@@ -25,18 +25,7 @@ THE SOFTWARE.
 */
 
 #include <util.h>
-
-inline int disable_irq(void) {
-    int primask;
-    asm volatile("mrs %0, PRIMASK\n"
-                 "cpsid i\n" : "=r"(primask));
-    return primask & 1;
-}
-
-inline void enable_irq(int primask) {
-	if (!primask)
-        asm volatile("cpsie i\n");
-}
+#include <cmsis_device.h>
 
 void hex32(char *out, uint32_t val)
 {
@@ -55,4 +44,9 @@ void hex32(char *out, uint32_t val)
 		val >>= 4;
 		p--;
 	}
+}
+
+void assert_failed(void) {
+	/* for now, just halt and trigger debugger (if attached) */
+	__BKPT(0);
 }

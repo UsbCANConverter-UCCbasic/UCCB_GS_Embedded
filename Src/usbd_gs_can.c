@@ -97,7 +97,7 @@ USBD_ClassTypeDef USBD_GS_CAN = {
 
 
 /* Configuration Descriptor */
-__ALIGN_BEGIN uint8_t USBD_GS_CAN_CfgDesc[USB_CAN_CONFIG_DESC_SIZ] __ALIGN_END =
+static const uint8_t USBD_GS_CAN_CfgDesc[USB_CAN_CONFIG_DESC_SIZ] =
 {
 	/*---------------------------------------------------------------------------*/
 	/* Configuration Descriptor */
@@ -173,7 +173,7 @@ __ALIGN_BEGIN uint8_t USBD_GS_CAN_CfgDesc[USB_CAN_CONFIG_DESC_SIZ] __ALIGN_END =
 };
 
 /* Microsoft OS String Descriptor */
-__ALIGN_BEGIN uint8_t USBD_GS_CAN_WINUSB_STR[] __ALIGN_END =
+static const uint8_t USBD_GS_CAN_WINUSB_STR[] =
 {
 	0x12,                    /* length */
 	0x03,                    /* descriptor type == string */
@@ -186,7 +186,7 @@ __ALIGN_BEGIN uint8_t USBD_GS_CAN_WINUSB_STR[] __ALIGN_END =
 };
 
 /*  Microsoft Compatible ID Feature Descriptor  */
-static __ALIGN_BEGIN uint8_t USBD_MS_COMP_ID_FEATURE_DESC[] __ALIGN_END = {
+static const uint8_t USBD_MS_COMP_ID_FEATURE_DESC[] = {
 	0x40, 0x00, 0x00, 0x00, /* length */
 	0x00, 0x01,             /* version 1.0 */
 	0x04, 0x00,             /* descr index (0x0004) */
@@ -212,7 +212,7 @@ static __ALIGN_BEGIN uint8_t USBD_MS_COMP_ID_FEATURE_DESC[] __ALIGN_END = {
 };
 
 /* Microsoft Extended Properties Feature Descriptor */
-static __ALIGN_BEGIN uint8_t USBD_MS_EXT_PROP_FEATURE_DESC[] __ALIGN_END = {
+static const uint8_t USBD_MS_EXT_PROP_FEATURE_DESC[] = {
 	0x92, 0x00, 0x00, 0x00, /* length */
 	0x00, 0x01,				/* version 1.0 */
 	0x05, 0x00,             /* descr index (0x0005) */
@@ -290,22 +290,17 @@ static const struct gs_device_bt_const USBD_GS_CAN_btconst = {
 
 uint8_t USBD_GS_CAN_Init(USBD_HandleTypeDef *pdev, queue_t *q_frame_pool, queue_t *q_from_host, led_data_t *leds)
 {
-	uint8_t ret = USBD_FAIL;
 	USBD_GS_CAN_HandleTypeDef *hcan = calloc(1, sizeof(USBD_GS_CAN_HandleTypeDef));
 
-	if(hcan != 0) {
-		hcan->q_frame_pool = q_frame_pool;
-		hcan->q_from_host = q_from_host;
-		hcan->leds = leds;
-		pdev->pClassData = hcan;
-		hcan->from_host_buf = NULL;
+	assert_basic(hcan);
 
-		ret = USBD_OK;
-	} else {
-		pdev->pClassData = 0;
-	}
+	hcan->q_frame_pool = q_frame_pool;
+	hcan->q_from_host = q_from_host;
+	hcan->leds = leds;
+	pdev->pClassData = hcan;
+	hcan->from_host_buf = NULL;
 
-	return ret;
+	return USBD_OK;
 }
 
 
@@ -313,20 +308,17 @@ uint8_t USBD_GS_CAN_Init(USBD_HandleTypeDef *pdev, queue_t *q_frame_pool, queue_
 static uint8_t USBD_GS_CAN_Start(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
 {
 	UNUSED(cfgidx);
-	uint8_t ret = USBD_FAIL;
 
-	if (pdev->pClassData) {
-	  USBD_GS_CAN_HandleTypeDef *hcan = (USBD_GS_CAN_HandleTypeDef*) pdev->pClassData;
-		USBD_LL_OpenEP(pdev, GSUSB_ENDPOINT_IN, USBD_EP_TYPE_BULK, CAN_DATA_MAX_PACKET_SIZE);
-		USBD_LL_OpenEP(pdev, GSUSB_ENDPOINT_OUT, USBD_EP_TYPE_BULK, CAN_DATA_MAX_PACKET_SIZE);
-                hcan->from_host_buf = queue_pop_front(hcan->q_frame_pool);
-		USBD_GS_CAN_PrepareReceive(pdev);
-		ret = USBD_OK;
-	} else {
-		ret = USBD_FAIL;
-	}
+	assert_basic(pdev->pClassData);
 
-	return ret;
+	USBD_GS_CAN_HandleTypeDef *hcan = (USBD_GS_CAN_HandleTypeDef*) pdev->pClassData;
+	USBD_LL_OpenEP(pdev, GSUSB_ENDPOINT_IN, USBD_EP_TYPE_BULK, CAN_DATA_MAX_PACKET_SIZE);
+	USBD_LL_OpenEP(pdev, GSUSB_ENDPOINT_OUT, USBD_EP_TYPE_BULK, CAN_DATA_MAX_PACKET_SIZE);
+	hcan->from_host_buf = queue_pop_front(hcan->q_frame_pool);
+	USBD_GS_CAN_PrepareReceive(pdev);
+
+	return USBD_OK;
+
 }
 
 static uint8_t USBD_GS_CAN_DeInit(USBD_HandleTypeDef *pdev, uint8_t cfgidx)
@@ -348,9 +340,11 @@ static uint8_t USBD_GS_CAN_SOF(struct _USBD_HandleTypeDef *pdev)
 
 void USBD_GS_CAN_SetChannel(USBD_HandleTypeDef *pdev, uint8_t channel, can_data_t* handle) {
 	USBD_GS_CAN_HandleTypeDef *hcan = (USBD_GS_CAN_HandleTypeDef*) pdev->pClassData;
-	if ((hcan!=NULL) && (channel < NUM_CAN_CHANNEL)) {
-		hcan->channels[channel] = handle;
-	}
+
+	assert_basic(hcan);
+	assert_basic(channel < NUM_CAN_CHANNEL);
+	hcan->channels[channel] = handle;
+	return;
 }
 
 static led_seq_step_t led_identify_seq[] = {
@@ -383,7 +377,7 @@ static uint8_t USBD_GS_CAN_EP0_RxReady(USBD_HandleTypeDef *pdev) {
 //    			led_run_sequence(hcan->leds, led_identify_seq, -1);
     		} else {
     			ch = hcan->channels[req->wValue]; // TODO verify wValue input data (implement getChannelData() ?)
-//        		led_set_mode(hcan->leds, can_is_enabled(ch) ? led_mode_normal : led_mode_off);
+      //  		led_set_mode(hcan->leds, can_is_enabled(ch) ? led_mode_normal : led_mode_off);
     		}
     		break;
 
@@ -403,7 +397,7 @@ static uint8_t USBD_GS_CAN_EP0_RxReady(USBD_HandleTypeDef *pdev) {
 				if (mode->mode == GS_CAN_MODE_RESET) {
 
 					can_disable(ch);
-//					led_set_mode(hcan->leds, led_mode_off);
+	//				led_set_mode(hcan->leds, led_mode_off);
 
 				} else if (mode->mode == GS_CAN_MODE_START) {
 
@@ -417,7 +411,7 @@ static uint8_t USBD_GS_CAN_EP0_RxReady(USBD_HandleTypeDef *pdev) {
 						// triple sampling not supported on bxCAN
 					);
 
-//					led_set_mode(hcan->leds, led_mode_normal);
+		//			led_set_mode(hcan->leds, led_mode_normal);
 				}
 			}
     		break;
@@ -536,24 +530,19 @@ static uint8_t USBD_GS_CAN_Vendor_Request(USBD_HandleTypeDef *pdev, USBD_SetupRe
 
 bool USBD_GS_CAN_CustomDeviceRequest(USBD_HandleTypeDef *pdev, USBD_SetupReqTypedef *req)
 {
-	uint16_t len = 0;
-	uint8_t *pbuf;
-
 	if (req->bRequest == USBD_GS_CAN_VENDOR_CODE) {
 
 		switch (req->wIndex) {
 
 			case 0x0004:
-				pbuf = USBD_MS_COMP_ID_FEATURE_DESC;
-				len = sizeof(USBD_MS_COMP_ID_FEATURE_DESC);
-				USBD_CtlSendData(pdev, pbuf, MIN(len, req->wLength));
+				memcpy(USBD_DescBuf, USBD_MS_COMP_ID_FEATURE_DESC, sizeof(USBD_MS_COMP_ID_FEATURE_DESC));
+				USBD_CtlSendData(pdev, USBD_DescBuf, MIN(sizeof(USBD_MS_COMP_ID_FEATURE_DESC), req->wLength));
 				return true;
 
 			case 0x0005:
 				if (req->wValue==0) { // only return our GUID for interface #0
-					pbuf = USBD_MS_EXT_PROP_FEATURE_DESC;
-					len = sizeof(USBD_MS_EXT_PROP_FEATURE_DESC);
-					USBD_CtlSendData(pdev, pbuf, MIN(len, req->wLength));
+					memcpy(USBD_DescBuf, USBD_MS_EXT_PROP_FEATURE_DESC, sizeof(USBD_MS_EXT_PROP_FEATURE_DESC));
+					USBD_CtlSendData(pdev, USBD_DescBuf, MIN(sizeof(USBD_MS_EXT_PROP_FEATURE_DESC), req->wLength));
 					return true;
 				}
 				break;
@@ -620,7 +609,7 @@ static uint8_t USBD_GS_CAN_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum) {
 		if(frame){
 		        queue_push_back_i(hcan->q_from_host, hcan->from_host_buf);
 		        hcan->from_host_buf = frame;
-		  
+
 		        retval = USBD_OK;
 		}
 		else{
@@ -635,7 +624,8 @@ static uint8_t USBD_GS_CAN_DataOut(USBD_HandleTypeDef *pdev, uint8_t epnum) {
 static uint8_t *USBD_GS_CAN_GetCfgDesc(uint16_t *len)
 {
 	*len = sizeof(USBD_GS_CAN_CfgDesc);
-	return USBD_GS_CAN_CfgDesc;
+	memcpy(USBD_DescBuf, USBD_GS_CAN_CfgDesc, sizeof(USBD_GS_CAN_CfgDesc));
+	return USBD_DescBuf;
 }
 
 inline uint8_t USBD_GS_CAN_PrepareReceive(USBD_HandleTypeDef *pdev)
@@ -680,21 +670,22 @@ uint8_t USBD_GS_CAN_GetPadPacketsToMaxPacketSize(USBD_HandleTypeDef *pdev)
 
 uint8_t USBD_GS_CAN_SendFrame(USBD_HandleTypeDef *pdev, struct gs_host_frame *frame)
 {
-        uint8_t buf[CAN_DATA_MAX_PACKET_SIZE],*send_addr;
-  
+	uint8_t buf[CAN_DATA_MAX_PACKET_SIZE],*send_addr;
+
 	USBD_GS_CAN_HandleTypeDef *hcan = (USBD_GS_CAN_HandleTypeDef*)pdev->pClassData;
 	size_t len = sizeof(struct gs_host_frame);
 
-	if (!hcan->timestamps_enabled)
-	  len -= 4;
+	if (!hcan->timestamps_enabled) {
+		len -= 4;
+	}
 
 	send_addr = (uint8_t *)frame;
-	
+
 	if(hcan->pad_pkts_to_max_pkt_size){
-	        // When talking to WinUSB it seems to help a lot if the
+		// When talking to WinUSB it seems to help a lot if the
 		// size of packet you send equals the max packet size.
-	        // In this mode, fill packets out to max packet size and
-	        // then send.
+		// In this mode, fill packets out to max packet size and
+		// then send.
 		memcpy(buf, frame, len);
 
 		// zero rest of buffer
@@ -702,7 +693,7 @@ uint8_t USBD_GS_CAN_SendFrame(USBD_HandleTypeDef *pdev, struct gs_host_frame *fr
 		send_addr = buf;
 		len = sizeof(buf);
 	}
-   
+
 	return USBD_GS_CAN_Transmit(pdev, send_addr, len);
 }
 
@@ -712,11 +703,12 @@ uint8_t *USBD_GS_CAN_GetStrDesc(USBD_HandleTypeDef *pdev, uint8_t index, uint16_
 
 	switch (index) {
 		case DFU_INTERFACE_STR_INDEX:
-			USBD_GetString(DFU_INTERFACE_STRING_FS, USBD_StrDesc, length);
-			return USBD_StrDesc;
+			USBD_GetString(DFU_INTERFACE_STRING_FS, USBD_DescBuf, length);
+			return USBD_DescBuf;
 		case 0xEE:
 			*length = sizeof(USBD_GS_CAN_WINUSB_STR);
-			return USBD_GS_CAN_WINUSB_STR;
+			memcpy(USBD_DescBuf, USBD_GS_CAN_WINUSB_STR, sizeof(USBD_GS_CAN_WINUSB_STR));
+			return USBD_DescBuf;
 		default:
 			*length = 0;
 			USBD_CtlError(pdev, 0);
